@@ -375,7 +375,7 @@ async fn update_workstream(
     id: String,
     name: Option<String>,
     description: Option<String>,
-    status: Option<String>
+    status: String
 ) -> Result<Value, String> {
     let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
     
@@ -402,24 +402,26 @@ async fn update_workstream(
         return Err(format!("Workstream with ID '{}' not found", id));
     }
     
-    let (_, persona_id, old_name, old_description, old_status_str, created_at, _) = existing_workstream.unwrap();
+    let (_, persona_id, old_name, old_description, _old_status_str, created_at, _) = existing_workstream.unwrap();
     
     let updated_name = name.unwrap_or(old_name);
     let updated_description = description.or(old_description);
-    let updated_status_str = status.clone().unwrap_or(old_status_str);
+    let updated_status_str = status;
     let updated_at = get_current_timestamp();
     
-    // Validate status if provided
-    if let Some(ref status_val) = status {
-        match status_val.as_str() {
-            "planning" | "active" | "paused" | "completed" | "cancelled" => {},
-            _ => return Err(format!("Invalid status: {}. Valid statuses: planning, active, paused, completed, cancelled", status_val)),
-        }
+    // Clean the status string - remove surrounding quotes if present
+    let cleaned_status = updated_status_str.trim_matches('"');
+    println!("🔍 DEBUG: Cleaned status: '{}'", cleaned_status);
+    
+    // Validate status
+    match cleaned_status {
+        "planning" | "active" | "paused" | "completed" | "cancelled" => {},
+        _ => return Err(format!("Invalid status: {}. Valid statuses: planning, active, paused, completed, cancelled", cleaned_status)),
     }
     
     db.execute(
         "UPDATE workstreams SET name = ?1, description = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
-        rusqlite::params![updated_name, updated_description, updated_status_str, updated_at.to_rfc3339(), id]
+        rusqlite::params![updated_name, updated_description, cleaned_status, updated_at.to_rfc3339(), id]
     ).map_err(|e| format!("SQL update error: {}", e))?;
     
     let updated_workstream = Workstream {
@@ -427,7 +429,7 @@ async fn update_workstream(
         persona_id,
         name: updated_name,
         description: updated_description,
-        status: serde_json::from_str(&updated_status_str).unwrap_or(WorkstreamStatus::Planning),
+        status: serde_json::from_str(&format!("\"{}\"", cleaned_status)).unwrap_or(WorkstreamStatus::Planning),
         priority: database::Priority::Medium,
         start_date: None,
         target_date: None,

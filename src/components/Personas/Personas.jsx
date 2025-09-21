@@ -153,6 +153,7 @@ const Personas = () => {
     });
     setEditingPersona(null);
     setError('');
+    setShowCreateForm(false);
   };
 
   const cancelForm = () => {

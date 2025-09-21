@@ -137,7 +137,7 @@ const Workstreams = () => {
       persona_id: workstream.persona_id,
       name: workstream.name,
       description: workstream.description || '',
-      status: workstream.status
+      status: workstream.status.toLowerCase()
     });
     setShowCreateForm(true);
   };
@@ -151,6 +151,7 @@ const Workstreams = () => {
     });
     setEditingWorkstream(null);
     setError('');
+    setShowCreateForm(false);
   };
 
   const cancelForm = () => {
@@ -159,7 +160,9 @@ const Workstreams = () => {
   };
 
   const getStatusInfo = (status) => {
-    return statusOptions.find(s => s.value === status) || statusOptions[0];
+    // Handle both lowercase and capitalized status values for backward compatibility
+    const normalizedStatus = status.toLowerCase();
+    return statusOptions.find(s => s.value === normalizedStatus) || statusOptions[0];
   };
 
   const filteredWorkstreams = selectedPersona === 'all' 
