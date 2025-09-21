@@ -151,6 +151,102 @@ async fn clear_all_personas(state: tauri::State<'_, AppState>) -> Result<String,
     Ok(format!("Successfully deleted {} persona(s) from the database", count))
 }
 
+// Persona Management Commands
+#[tauri::command]
+async fn create_persona(
+    state: tauri::State<'_, AppState>, 
+    name: String, 
+    description: Option<String>, 
+    color: String
+) -> Result<Value, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+    
+    let persona = Persona {
+        id: generate_id(),
+        name: name.clone(),
+        description,
+        color,
+        created_at: get_current_timestamp(),
+        updated_at: get_current_timestamp(),
+        is_active: true,
+    };
+    
+    db.execute(
+        "INSERT INTO personas (id, name, description, color, created_at, updated_at, is_active) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            persona.id,
+            persona.name,
+            persona.description,
+            persona.color,
+            persona.created_at.to_rfc3339(),
+            persona.updated_at.to_rfc3339(),
+            persona.is_active
+        ]
+    ).map_err(|e| format!("SQL insert error: {}", e))?;
+    
+    Ok(serde_json::to_value(persona).map_err(|e| format!("Serialization error: {}", e))?)
+}
+
+#[tauri::command]
+async fn update_persona(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    description: Option<String>,
+    color: Option<String>,
+    is_active: Option<bool>
+) -> Result<Value, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+    
+    // Check if persona exists
+    let mut stmt = db.prepare("SELECT id, name, description, color, created_at, updated_at, is_active FROM personas WHERE id = ?1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+    
+    let existing_persona: Result<Option<(String, String, Option<String>, String, String, String, bool)>, rusqlite::Error> = 
+        stmt.query_row([&id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, bool>(6)?
+            ))
+        }).optional();
+    
+    let existing_persona = existing_persona.map_err(|e| format!("SQL query error: {}", e))?;
+    
+    if existing_persona.is_none() {
+        return Err(format!("Persona with ID '{}' not found", id));
+    }
+    
+    let (_, old_name, old_description, old_color, created_at, _, old_is_active) = existing_persona.unwrap();
+    
+    let updated_name = name.unwrap_or(old_name);
+    let updated_description = description.or(old_description);
+    let updated_color = color.unwrap_or(old_color);
+    let updated_is_active = is_active.unwrap_or(old_is_active);
+    let updated_at = get_current_timestamp();
+    
+    db.execute(
+        "UPDATE personas SET name = ?1, description = ?2, color = ?3, is_active = ?4, updated_at = ?5 WHERE id = ?6",
+        rusqlite::params![updated_name, updated_description, updated_color, updated_is_active, updated_at.to_rfc3339(), id]
+    ).map_err(|e| format!("SQL update error: {}", e))?;
+    
+    let updated_persona = Persona {
+        id: id.clone(),
+        name: updated_name,
+        description: updated_description,
+        color: updated_color,
+        created_at: chrono::DateTime::parse_from_rfc3339(&created_at).unwrap().with_timezone(&chrono::Utc),
+        updated_at,
+        is_active: updated_is_active,
+    };
+    
+    Ok(serde_json::to_value(updated_persona).map_err(|e| format!("Serialization error: {}", e))?)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database connection and create schema
@@ -179,7 +275,7 @@ pub fn run() {
                 .build(),
         )
         .manage(app_state)
-        .invoke_handler(tauri::generate_handler![greet, test_database_connection, create_test_persona, get_all_personas, delete_persona, clear_all_personas])
+        .invoke_handler(tauri::generate_handler![greet, test_database_connection, create_test_persona, get_all_personas, delete_persona, clear_all_personas, create_persona, update_persona])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
