@@ -4,15 +4,19 @@
   "version": "0.1.0",
   "identifier": "com.abelathur.personal-productivity-app",
   "build": {
-    "frontendDist": "../src"
+    "frontendDist": "../dist"
   },
   "app": {
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "personal-productivity-app",
-        "width": 800,
-        "height": 600
+        "title": "Personal Productivity App",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 1000,
+        "minHeight": 700,
+        "center": true,
+        "resizable": true
       }
     ],
     "security": {
