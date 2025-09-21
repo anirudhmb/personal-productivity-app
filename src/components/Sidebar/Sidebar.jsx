@@ -7,6 +7,7 @@ const Sidebar = ({ activeView, setActiveView }) => {
     { id: 'personas', label: 'Personas', icon: '👤' },
     { id: 'journal', label: 'Journal', icon: '📝' },
     { id: 'habits', label: 'Habits', icon: '🏃‍♂️' },
+    { id: 'database-test', label: 'Database Test', icon: '🗄️' },
   ];
 
   return (

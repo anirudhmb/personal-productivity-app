@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build:tauri": "npm run build && npm run tauri build",
+    "dev:tauri": "npm run tauri dev"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

@@ -4,6 +4,7 @@ import Dashboard from './components/Dashboard/Dashboard';
 import Personas from './components/Personas/Personas';
 import Journal from './components/Journal/Journal';
 import Habits from './components/Habits/Habits';
+import DatabaseTest from './components/DatabaseTest/DatabaseTest';
 import './App.css';
 
 function App() {
@@ -19,6 +20,8 @@ function App() {
         return <Journal />;
       case 'habits':
         return <Habits />;
+      case 'database-test':
+        return <DatabaseTest />;
       default:
         return <Dashboard />;
     }
