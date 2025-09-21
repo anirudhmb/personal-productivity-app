@@ -92,6 +92,7 @@ pub struct JournalEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum WorkstreamStatus {
+    Planning,
     Active,
     Paused,
     Completed,

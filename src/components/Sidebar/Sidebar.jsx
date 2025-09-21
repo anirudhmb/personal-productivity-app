@@ -5,6 +5,7 @@ const Sidebar = ({ activeView, setActiveView }) => {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'personas', label: 'Personas', icon: '👤' },
+    { id: 'workstreams', label: 'Workstreams', icon: '🎯' },
     { id: 'journal', label: 'Journal', icon: '📝' },
     { id: 'habits', label: 'Habits', icon: '🏃‍♂️' },
     { id: 'database-test', label: 'Database Test', icon: '🗄️' },

@@ -1,6 +1,6 @@
 mod database;
 
-use database::{get_database_schema, Persona, generate_id, get_current_timestamp};
+use database::{get_database_schema, Persona, Workstream, WorkstreamStatus, generate_id, get_current_timestamp};
 use tauri_plugin_sql::{Builder, Migration, MigrationKind};
 use serde_json::Value;
 use std::sync::Mutex;
@@ -247,6 +247,228 @@ async fn update_persona(
     Ok(serde_json::to_value(updated_persona).map_err(|e| format!("Serialization error: {}", e))?)
 }
 
+// Workstream Management Commands
+#[tauri::command]
+async fn create_workstream(
+    state: tauri::State<'_, AppState>, 
+    persona_id: String,
+    name: String, 
+    description: Option<String>, 
+    status: String
+) -> Result<Value, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+    
+    // Verify persona exists
+    let mut stmt = db.prepare("SELECT id FROM personas WHERE id = ?1 AND is_active = 1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+    
+    let persona_exists: Result<Option<String>, rusqlite::Error> = stmt.query_row([&persona_id], |row| {
+        Ok(row.get::<_, String>(0)?)
+    }).optional();
+    
+    let persona_exists = persona_exists.map_err(|e| format!("SQL query error: {}", e))?;
+    
+    if persona_exists.is_none() {
+        return Err(format!("Persona with ID '{}' not found or inactive", persona_id));
+    }
+    
+    // Parse status
+    let workstream_status = match status.as_str() {
+        "planning" => WorkstreamStatus::Planning,
+        "active" => WorkstreamStatus::Active,
+        "paused" => WorkstreamStatus::Paused,
+        "completed" => WorkstreamStatus::Completed,
+        "cancelled" => WorkstreamStatus::Cancelled,
+        _ => return Err(format!("Invalid status: {}. Valid statuses: planning, active, paused, completed, cancelled", status)),
+    };
+    
+    let workstream = Workstream {
+        id: generate_id(),
+        persona_id,
+        name: name.clone(),
+        description,
+        status: workstream_status,
+        priority: database::Priority::Medium,
+        start_date: None,
+        target_date: None,
+        completed_date: None,
+        progress_percentage: 0,
+        created_at: get_current_timestamp(),
+        updated_at: get_current_timestamp(),
+    };
+    
+    db.execute(
+        "INSERT INTO workstreams (id, persona_id, name, description, status, priority, start_date, target_date, completed_date, progress_percentage, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        rusqlite::params![
+            workstream.id,
+            workstream.persona_id,
+            workstream.name,
+            workstream.description,
+            serde_json::to_string(&workstream.status).map_err(|e| format!("Status serialization error: {}", e))?,
+            serde_json::to_string(&workstream.priority).map_err(|e| format!("Priority serialization error: {}", e))?,
+            workstream.start_date.map(|d| d.to_rfc3339()),
+            workstream.target_date.map(|d| d.to_rfc3339()),
+            workstream.completed_date.map(|d| d.to_rfc3339()),
+            workstream.progress_percentage,
+            workstream.created_at.to_rfc3339(),
+            workstream.updated_at.to_rfc3339()
+        ]
+    ).map_err(|e| format!("SQL insert error: {}", e))?;
+    
+    Ok(serde_json::to_value(workstream).map_err(|e| format!("Serialization error: {}", e))?)
+}
+
+#[tauri::command]
+async fn get_workstreams_by_persona(
+    state: tauri::State<'_, AppState>,
+    persona_id: String
+) -> Result<Vec<Value>, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+    
+    let mut stmt = db.prepare("SELECT id, persona_id, name, description, status, created_at, updated_at FROM workstreams WHERE persona_id = ?1 ORDER BY created_at DESC")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+    
+    let workstream_iter = stmt.query_map([&persona_id], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "persona_id": row.get::<_, String>(1)?,
+            "name": row.get::<_, String>(2)?,
+            "description": row.get::<_, Option<String>>(3)?,
+            "status": row.get::<_, String>(4)?,
+            "created_at": row.get::<_, String>(5)?,
+            "updated_at": row.get::<_, String>(6)?
+        }))
+    }).map_err(|e| format!("SQL query error: {}", e))?;
+    
+    let workstreams: Result<Vec<Value>, rusqlite::Error> = workstream_iter.collect();
+    workstreams.map_err(|e| format!("SQL collect error: {}", e))
+}
+
+#[tauri::command]
+async fn get_all_workstreams(state: tauri::State<'_, AppState>) -> Result<Vec<Value>, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+    
+    let mut stmt = db.prepare("SELECT w.id, w.persona_id, w.name, w.description, w.status, w.created_at, w.updated_at, p.name as persona_name, p.color as persona_color FROM workstreams w JOIN personas p ON w.persona_id = p.id ORDER BY w.created_at DESC")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+    
+    let workstream_iter = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "persona_id": row.get::<_, String>(1)?,
+            "name": row.get::<_, String>(2)?,
+            "description": row.get::<_, Option<String>>(3)?,
+            "status": row.get::<_, String>(4)?,
+            "created_at": row.get::<_, String>(5)?,
+            "updated_at": row.get::<_, String>(6)?,
+            "persona_name": row.get::<_, String>(7)?,
+            "persona_color": row.get::<_, String>(8)?
+        }))
+    }).map_err(|e| format!("SQL query error: {}", e))?;
+    
+    let workstreams: Result<Vec<Value>, rusqlite::Error> = workstream_iter.collect();
+    workstreams.map_err(|e| format!("SQL collect error: {}", e))
+}
+
+#[tauri::command]
+async fn update_workstream(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    name: Option<String>,
+    description: Option<String>,
+    status: Option<String>
+) -> Result<Value, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+    
+    // Check if workstream exists
+    let mut stmt = db.prepare("SELECT id, persona_id, name, description, status, created_at, updated_at FROM workstreams WHERE id = ?1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+    
+    let existing_workstream: Result<Option<(String, String, String, Option<String>, String, String, String)>, rusqlite::Error> = 
+        stmt.query_row([&id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?
+            ))
+        }).optional();
+    
+    let existing_workstream = existing_workstream.map_err(|e| format!("SQL query error: {}", e))?;
+    
+    if existing_workstream.is_none() {
+        return Err(format!("Workstream with ID '{}' not found", id));
+    }
+    
+    let (_, persona_id, old_name, old_description, old_status_str, created_at, _) = existing_workstream.unwrap();
+    
+    let updated_name = name.unwrap_or(old_name);
+    let updated_description = description.or(old_description);
+    let updated_status_str = status.clone().unwrap_or(old_status_str);
+    let updated_at = get_current_timestamp();
+    
+    // Validate status if provided
+    if let Some(ref status_val) = status {
+        match status_val.as_str() {
+            "planning" | "active" | "paused" | "completed" | "cancelled" => {},
+            _ => return Err(format!("Invalid status: {}. Valid statuses: planning, active, paused, completed, cancelled", status_val)),
+        }
+    }
+    
+    db.execute(
+        "UPDATE workstreams SET name = ?1, description = ?2, status = ?3, updated_at = ?4 WHERE id = ?5",
+        rusqlite::params![updated_name, updated_description, updated_status_str, updated_at.to_rfc3339(), id]
+    ).map_err(|e| format!("SQL update error: {}", e))?;
+    
+    let updated_workstream = Workstream {
+        id: id.clone(),
+        persona_id,
+        name: updated_name,
+        description: updated_description,
+        status: serde_json::from_str(&updated_status_str).unwrap_or(WorkstreamStatus::Planning),
+        priority: database::Priority::Medium,
+        start_date: None,
+        target_date: None,
+        completed_date: None,
+        progress_percentage: 0,
+        created_at: chrono::DateTime::parse_from_rfc3339(&created_at).unwrap().with_timezone(&chrono::Utc),
+        updated_at,
+    };
+    
+    Ok(serde_json::to_value(updated_workstream).map_err(|e| format!("Serialization error: {}", e))?)
+}
+
+#[tauri::command]
+async fn delete_workstream(state: tauri::State<'_, AppState>, id: String) -> Result<String, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+    
+    // Check if workstream exists first
+    let mut stmt = db.prepare("SELECT name FROM workstreams WHERE id = ?1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+    
+    let workstream_name: Result<Option<String>, rusqlite::Error> = stmt.query_row([&id], |row| {
+        Ok(row.get::<_, String>(0)?)
+    }).optional();
+    
+    let workstream_name = workstream_name.map_err(|e| format!("SQL query error: {}", e))?;
+    
+    if workstream_name.is_none() {
+        return Err(format!("Workstream with ID '{}' not found", id));
+    }
+    
+    // Delete the workstream
+    let changes = db.execute("DELETE FROM workstreams WHERE id = ?1", [&id])
+        .map_err(|e| format!("SQL delete error: {}", e))?;
+    
+    if changes == 0 {
+        return Err(format!("No workstream was deleted with ID '{}'", id));
+    }
+    
+    Ok(format!("Successfully deleted workstream '{}' with ID: {}", workstream_name.unwrap(), id))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database connection and create schema
@@ -275,7 +497,7 @@ pub fn run() {
                 .build(),
         )
         .manage(app_state)
-        .invoke_handler(tauri::generate_handler![greet, test_database_connection, create_test_persona, get_all_personas, delete_persona, clear_all_personas, create_persona, update_persona])
+        .invoke_handler(tauri::generate_handler![greet, test_database_connection, create_test_persona, get_all_personas, delete_persona, clear_all_personas, create_persona, update_persona, create_workstream, get_workstreams_by_persona, get_all_workstreams, update_workstream, delete_workstream])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
