@@ -69,6 +69,7 @@
   max-width: 500px;
   max-height: 90vh;
   overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .form-header {
@@ -88,8 +89,15 @@
 }
 
 /* Form Elements */
+form {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .form-group {
   margin-bottom: var(--spacing-lg);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .form-label {
@@ -110,6 +118,7 @@
   color: var(--text-primary);
   background: var(--bg-primary);
   transition: all 0.2s ease;
+  box-sizing: border-box;
 }
 
 .form-input:focus,
