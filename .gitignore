@@ -11,6 +11,10 @@ yarn-error.log*
 # Build outputs
 dist/
 
+# Database files
+*.db
+src-tauri/data.db
+
 # Tauri
 /src-tauri/target/
 /src-tauri/Cargo.lock
