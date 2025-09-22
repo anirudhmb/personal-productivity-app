@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import DeleteConfirmationModal from '../DeleteConfirmationModal/DeleteConfirmationModal';
+import SuccessModal from '../SuccessModal/SuccessModal';
 import './Personas.css';
 
 const Personas = () => {
@@ -8,6 +10,11 @@ const Personas = () => {
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingPersona, setEditingPersona] = useState(null);
   const [error, setError] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [personaToDelete, setPersonaToDelete] = useState(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [successModalType, setSuccessModalType] = useState('success');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -101,21 +108,38 @@ const Personas = () => {
     }
   };
 
-  const handleDeletePersona = async (personaId, personaName) => {
-    if (!confirm(`Are you sure you want to delete "${personaName}"? This action cannot be undone.`)) {
-      return;
-    }
+  const handleDeleteClick = (persona) => {
+    setPersonaToDelete(persona);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!personaToDelete) return;
 
     setIsLoading(true);
     setError('');
+    setShowDeleteModal(false);
+
     try {
-      await invoke('delete_persona', { id: personaId });
-      setPersonas(prev => prev.filter(p => p.id !== personaId));
+      await invoke('delete_persona', { id: personaToDelete.id });
+      setPersonas(prev => prev.filter(p => p.id !== personaToDelete.id));
+      setSuccessMessage(`Successfully deleted persona: ${personaToDelete.name}`);
+      setSuccessModalType('success');
+      setShowSuccessModal(true);
     } catch (error) {
       setError(`Failed to delete persona: ${error}`);
+      setSuccessMessage(`Failed to delete persona: ${error}`);
+      setSuccessModalType('error');
+      setShowSuccessModal(true);
     } finally {
       setIsLoading(false);
+      setPersonaToDelete(null);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteModal(false);
+    setPersonaToDelete(null);
   };
 
   const handleToggleActive = async (persona) => {
@@ -334,7 +358,7 @@ const Personas = () => {
                     </button>
                     <button
                       className="btn btn-danger btn-sm"
-                      onClick={() => handleDeletePersona(persona.id, persona.name)}
+                      onClick={() => handleDeleteClick(persona)}
                       disabled={isLoading}
                       title="Delete persona"
                     >
@@ -346,6 +370,26 @@ const Personas = () => {
             ))}
           </div>
         )}
+
+        {/* Delete Confirmation Modal */}
+        <DeleteConfirmationModal
+          isOpen={showDeleteModal}
+          onClose={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
+          isLoading={isLoading}
+          itemType="persona"
+          itemName={personaToDelete?.name}
+          itemDescription={personaToDelete?.description}
+          confirmButtonText="Delete Persona"
+        />
+
+        {/* Success/Error Modal */}
+        <SuccessModal
+          isOpen={showSuccessModal}
+          onClose={() => setShowSuccessModal(false)}
+          message={successMessage}
+          type={successModalType}
+        />
       </div>
     </div>
   );

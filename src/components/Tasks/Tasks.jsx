@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import DeleteConfirmationModal from '../DeleteConfirmationModal/DeleteConfirmationModal';
+import SuccessModal from '../SuccessModal/SuccessModal';
 import './Tasks.css';
 
 const statusOptions = [
@@ -28,6 +30,7 @@ const Tasks = () => {
   const [taskToDelete, setTaskToDelete] = useState(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
+  const [successModalType, setSuccessModalType] = useState('success');
 
   // Filter state
   const [selectedWorkstream, setSelectedWorkstream] = useState('all');
@@ -126,12 +129,14 @@ const Tasks = () => {
     
     try {
       const result = await invoke('delete_project_task', { id: taskToDelete.id });
-      setSuccessMessage(`✅ Successfully deleted task: ${taskToDelete.title}`);
+      setSuccessMessage(`Successfully deleted task: ${taskToDelete.title}`);
+      setSuccessModalType('success');
       setShowSuccessModal(true);
       loadTasks();
     } catch (err) {
       setError(`Failed to delete task: ${err}`);
-      setSuccessMessage(`❌ Error: Failed to delete task: ${err}`);
+      setSuccessMessage(`Failed to delete task: ${err}`);
+      setSuccessModalType('error');
       setShowSuccessModal(true);
     } finally {
       setIsLoading(false);
@@ -462,65 +467,24 @@ const Tasks = () => {
              )}
 
              {/* Delete Confirmation Modal */}
-             {showDeleteModal && (
-               <div className="modal-overlay">
-                 <div className="modal-content delete-modal">
-                   <div className="modal-header">
-                     <h3 className="modal-title">Confirm Deletion</h3>
-                     <button onClick={handleDeleteCancel} className="btn btn-icon">✖️</button>
-                   </div>
-                   <div className="modal-body">
-                     <p>Are you sure you want to delete this task?</p>
-                     <p className="task-name"><strong>{taskToDelete?.title}</strong></p>
-                     <p className="warning-text">This action cannot be undone.</p>
-                   </div>
-                   <div className="modal-actions">
-                     <button 
-                       onClick={handleDeleteCancel} 
-                       className="btn btn-secondary"
-                       disabled={isLoading}
-                     >
-                       Cancel
-                     </button>
-                     <button 
-                       onClick={handleDeleteConfirm} 
-                       className="btn btn-danger"
-                       disabled={isLoading}
-                     >
-                       {isLoading ? 'Deleting...' : 'Delete Task'}
-                     </button>
-                   </div>
-                 </div>
-               </div>
-             )}
+             <DeleteConfirmationModal
+               isOpen={showDeleteModal}
+               onClose={handleDeleteCancel}
+               onConfirm={handleDeleteConfirm}
+               isLoading={isLoading}
+               itemType="task"
+               itemName={taskToDelete?.title}
+               itemDescription={taskToDelete?.description}
+               confirmButtonText="Delete Task"
+             />
 
              {/* Success/Error Modal */}
-             {showSuccessModal && (
-               <div className="modal-overlay">
-                 <div className="modal-content success-modal">
-                   <div className="modal-header">
-                     <h3 className="modal-title">Operation Result</h3>
-                     <button 
-                       onClick={() => setShowSuccessModal(false)} 
-                       className="btn btn-icon"
-                     >
-                       ✖️
-                     </button>
-                   </div>
-                   <div className="modal-body">
-                     <p className="result-message">{successMessage}</p>
-                   </div>
-                   <div className="modal-actions">
-                     <button 
-                       onClick={() => setShowSuccessModal(false)} 
-                       className="btn btn-primary"
-                     >
-                       OK
-                     </button>
-                   </div>
-                 </div>
-               </div>
-             )}
+             <SuccessModal
+               isOpen={showSuccessModal}
+               onClose={() => setShowSuccessModal(false)}
+               message={successMessage}
+               type={successModalType}
+             />
            </div>
          );
        };

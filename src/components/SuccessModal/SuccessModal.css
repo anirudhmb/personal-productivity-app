@@ -1,0 +1,48 @@
+/* Success Modal */
+.success-modal {
+  max-width: 450px;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-lg);
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.modal-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.modal-body {
+  margin-bottom: var(--spacing-lg);
+}
+
+.result-message {
+  color: var(--text-primary) !important;
+  font-size: 1rem;
+  line-height: 1.5;
+  margin: 0 !important;
+  word-break: break-word;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--spacing-md);
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .modal-actions {
+    flex-direction: column;
+  }
+  
+  .modal-actions .btn {
+    width: 100%;
+  }
+}

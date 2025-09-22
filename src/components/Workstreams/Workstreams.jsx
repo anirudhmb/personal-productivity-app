@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import DeleteConfirmationModal from '../DeleteConfirmationModal/DeleteConfirmationModal';
+import SuccessModal from '../SuccessModal/SuccessModal';
 import './Workstreams.css';
 
 const Workstreams = () => {
@@ -10,6 +12,11 @@ const Workstreams = () => {
   const [editingWorkstream, setEditingWorkstream] = useState(null);
   const [error, setError] = useState('');
   const [selectedPersona, setSelectedPersona] = useState('all');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [workstreamToDelete, setWorkstreamToDelete] = useState(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [successModalType, setSuccessModalType] = useState('success');
 
   // Form state
   const [formData, setFormData] = useState({
@@ -114,21 +121,38 @@ const Workstreams = () => {
     }
   };
 
-  const handleDeleteWorkstream = async (workstreamId, workstreamName) => {
-    if (!confirm(`Are you sure you want to delete "${workstreamName}"? This action cannot be undone.`)) {
-      return;
-    }
+  const handleDeleteClick = (workstream) => {
+    setWorkstreamToDelete(workstream);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!workstreamToDelete) return;
 
     setIsLoading(true);
     setError('');
+    setShowDeleteModal(false);
+
     try {
-      await invoke('delete_workstream', { id: workstreamId });
-      setWorkstreams(prev => prev.filter(w => w.id !== workstreamId));
+      await invoke('delete_workstream', { id: workstreamToDelete.id });
+      setWorkstreams(prev => prev.filter(w => w.id !== workstreamToDelete.id));
+      setSuccessMessage(`Successfully deleted workstream: ${workstreamToDelete.name}`);
+      setSuccessModalType('success');
+      setShowSuccessModal(true);
     } catch (error) {
       setError(`Failed to delete workstream: ${error}`);
+      setSuccessMessage(`Failed to delete workstream: ${error}`);
+      setSuccessModalType('error');
+      setShowSuccessModal(true);
     } finally {
       setIsLoading(false);
+      setWorkstreamToDelete(null);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteModal(false);
+    setWorkstreamToDelete(null);
   };
 
   const startEdit = (workstream) => {
@@ -405,7 +429,7 @@ const Workstreams = () => {
                       </button>
                       <button
                         className="btn btn-danger btn-sm"
-                        onClick={() => handleDeleteWorkstream(workstream.id, workstream.name)}
+                        onClick={() => handleDeleteClick(workstream)}
                         disabled={isLoading}
                         title="Delete workstream"
                       >
@@ -418,6 +442,26 @@ const Workstreams = () => {
             })}
           </div>
         )}
+
+        {/* Delete Confirmation Modal */}
+        <DeleteConfirmationModal
+          isOpen={showDeleteModal}
+          onClose={handleDeleteCancel}
+          onConfirm={handleDeleteConfirm}
+          isLoading={isLoading}
+          itemType="workstream"
+          itemName={workstreamToDelete?.name}
+          itemDescription={workstreamToDelete?.description}
+          confirmButtonText="Delete Workstream"
+        />
+
+        {/* Success/Error Modal */}
+        <SuccessModal
+          isOpen={showSuccessModal}
+          onClose={() => setShowSuccessModal(false)}
+          message={successMessage}
+          type={successModalType}
+        />
       </div>
     </div>
   );
