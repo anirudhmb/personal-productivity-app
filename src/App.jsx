@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar/Sidebar';
 import Dashboard from './components/Dashboard/Dashboard';
 import Personas from './components/Personas/Personas';
 import Workstreams from './components/Workstreams/Workstreams';
+import Tasks from './components/Tasks/Tasks';
 import Journal from './components/Journal/Journal';
 import Habits from './components/Habits/Habits';
 import DatabaseTest from './components/DatabaseTest/DatabaseTest';
@@ -19,6 +20,8 @@ function App() {
         return <Personas />;
       case 'workstreams':
         return <Workstreams />;
+      case 'tasks':
+        return <Tasks />;
       case 'journal':
         return <Journal />;
       case 'habits':

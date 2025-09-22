@@ -471,6 +471,264 @@ async fn delete_workstream(state: tauri::State<'_, AppState>, id: String) -> Res
     Ok(format!("Successfully deleted workstream '{}' with ID: {}", workstream_name.unwrap(), id))
 }
 
+// Project Task Management Commands
+#[tauri::command]
+async fn create_project_task(
+    state: tauri::State<'_, AppState>,
+    workstream_id: String,
+    title: String,
+    description: Option<String>,
+    status: String,
+    priority: String
+) -> Result<Value, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    // Verify workstream exists
+    let mut stmt = db.prepare("SELECT id FROM workstreams WHERE id = ?1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let workstream_exists: Result<Option<String>, rusqlite::Error> = stmt.query_row([&workstream_id], |row| {
+        Ok(row.get::<_, String>(0)?)
+    }).optional();
+
+    let workstream_exists = workstream_exists.map_err(|e| format!("SQL query error: {}", e))?;
+
+    if workstream_exists.is_none() {
+        return Err(format!("Workstream with ID '{}' not found", workstream_id));
+    }
+
+    // Parse status and priority
+    let task_status = match status.as_str() {
+        "backlog" => database::TaskStatus::Backlog,
+        "todo" => database::TaskStatus::ToDo,
+        "inprogress" => database::TaskStatus::InProgress,
+        "review" => database::TaskStatus::Review,
+        "done" => database::TaskStatus::Done,
+        _ => return Err(format!("Invalid status: {}. Valid statuses: backlog, todo, inprogress, review, done", status)),
+    };
+
+    let task_priority = match priority.as_str() {
+        "low" => database::Priority::Low,
+        "medium" => database::Priority::Medium,
+        "high" => database::Priority::High,
+        "critical" => database::Priority::Critical,
+        _ => return Err(format!("Invalid priority: {}. Valid priorities: low, medium, high, critical", priority)),
+    };
+
+    let task = database::ProjectTask {
+        id: database::generate_id(),
+        workstream_id,
+        title: title.clone(),
+        description,
+        status: task_status,
+        priority: task_priority,
+        due_date: None,
+        completed_date: None,
+        estimated_hours: None,
+        actual_hours: None,
+        tags: Vec::new(),
+        dependencies: Vec::new(),
+        created_at: database::get_current_timestamp(),
+        updated_at: database::get_current_timestamp(),
+    };
+
+    db.execute(
+        "INSERT INTO project_tasks (id, workstream_id, title, description, status, priority, due_date, completed_date, estimated_hours, actual_hours, tags, dependencies, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        rusqlite::params![
+            task.id,
+            task.workstream_id,
+            task.title,
+            task.description,
+            serde_json::to_string(&task.status).map_err(|e| format!("Status serialization error: {}", e))?,
+            serde_json::to_string(&task.priority).map_err(|e| format!("Priority serialization error: {}", e))?,
+            task.due_date.map(|d| d.to_rfc3339()),
+            task.completed_date.map(|d| d.to_rfc3339()),
+            task.estimated_hours,
+            task.actual_hours,
+            serde_json::to_string(&task.tags).map_err(|e| format!("Tags serialization error: {}", e))?,
+            serde_json::to_string(&task.dependencies).map_err(|e| format!("Dependencies serialization error: {}", e))?,
+            task.created_at.to_rfc3339(),
+            task.updated_at.to_rfc3339()
+        ]
+    ).map_err(|e| format!("SQL insert error: {}", e))?;
+
+    Ok(serde_json::to_value(task).map_err(|e| format!("Serialization error: {}", e))?)
+}
+
+#[tauri::command]
+async fn get_tasks_by_workstream(
+    state: tauri::State<'_, AppState>,
+    workstream_id: String
+) -> Result<Vec<Value>, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    let mut stmt = db.prepare("SELECT id, workstream_id, title, description, status, priority, due_date, completed_date, estimated_hours, actual_hours, tags, dependencies, created_at, updated_at FROM project_tasks WHERE workstream_id = ?1 ORDER BY created_at DESC")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let task_iter = stmt.query_map([&workstream_id], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "workstream_id": row.get::<_, String>(1)?,
+            "title": row.get::<_, String>(2)?,
+            "description": row.get::<_, Option<String>>(3)?,
+            "status": row.get::<_, String>(4)?,
+            "priority": row.get::<_, String>(5)?,
+            "due_date": row.get::<_, Option<String>>(6)?,
+            "completed_date": row.get::<_, Option<String>>(7)?,
+            "estimated_hours": row.get::<_, Option<f64>>(8)?,
+            "actual_hours": row.get::<_, Option<f64>>(9)?,
+            "tags": row.get::<_, String>(10)?,
+            "dependencies": row.get::<_, String>(11)?,
+            "created_at": row.get::<_, String>(12)?,
+            "updated_at": row.get::<_, String>(13)?
+        }))
+    }).map_err(|e| format!("SQL query error: {}", e))?;
+
+    let tasks: Result<Vec<Value>, rusqlite::Error> = task_iter.collect();
+    tasks.map_err(|e| format!("SQL collect error: {}", e))
+}
+
+#[tauri::command]
+async fn get_all_project_tasks(state: tauri::State<'_, AppState>) -> Result<Vec<Value>, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    let mut stmt = db.prepare("SELECT t.id, t.workstream_id, t.title, t.description, t.status, t.priority, t.due_date, t.completed_date, t.estimated_hours, t.actual_hours, t.tags, t.dependencies, t.created_at, t.updated_at, w.name as workstream_name, w.persona_id, p.name as persona_name, p.color as persona_color FROM project_tasks t JOIN workstreams w ON t.workstream_id = w.id JOIN personas p ON w.persona_id = p.id ORDER BY t.created_at DESC")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let task_iter = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "workstream_id": row.get::<_, String>(1)?,
+            "title": row.get::<_, String>(2)?,
+            "description": row.get::<_, Option<String>>(3)?,
+            "status": row.get::<_, String>(4)?,
+            "priority": row.get::<_, String>(5)?,
+            "due_date": row.get::<_, Option<String>>(6)?,
+            "completed_date": row.get::<_, Option<String>>(7)?,
+            "estimated_hours": row.get::<_, Option<f64>>(8)?,
+            "actual_hours": row.get::<_, Option<f64>>(9)?,
+            "tags": row.get::<_, String>(10)?,
+            "dependencies": row.get::<_, String>(11)?,
+            "created_at": row.get::<_, String>(12)?,
+            "updated_at": row.get::<_, String>(13)?,
+            "workstream_name": row.get::<_, String>(14)?,
+            "persona_id": row.get::<_, String>(15)?,
+            "persona_name": row.get::<_, String>(16)?,
+            "persona_color": row.get::<_, String>(17)?
+        }))
+    }).map_err(|e| format!("SQL query error: {}", e))?;
+
+    let tasks: Result<Vec<Value>, rusqlite::Error> = task_iter.collect();
+    tasks.map_err(|e| format!("SQL collect error: {}", e))
+}
+
+#[tauri::command]
+async fn update_project_task(
+    state: tauri::State<'_, AppState>,
+    id: String,
+    title: Option<String>,
+    description: Option<String>,
+    status: String,
+    priority: String
+) -> Result<Value, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    // Check if task exists
+    let mut stmt = db.prepare("SELECT id, workstream_id, title, description, status, priority, created_at, updated_at FROM project_tasks WHERE id = ?1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let existing_task: Result<Option<(String, String, String, Option<String>, String, String, String, String)>, rusqlite::Error> =
+        stmt.query_row([&id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?
+            ))
+        }).optional();
+
+    let existing_task = existing_task.map_err(|e| format!("SQL query error: {}", e))?;
+
+    if existing_task.is_none() {
+        return Err(format!("Project task with ID '{}' not found", id));
+    }
+
+    let (_, workstream_id, old_title, old_description, _old_status_str, _old_priority_str, created_at, _) = existing_task.unwrap();
+
+    let updated_title = title.unwrap_or(old_title);
+    let updated_description = description.or(old_description);
+    let updated_status_str = status;
+    let updated_priority_str = priority;
+    let updated_at = database::get_current_timestamp();
+
+    // Clean the status string - remove surrounding quotes if present
+    let cleaned_status = updated_status_str.trim_matches('"');
+    let cleaned_priority = updated_priority_str.trim_matches('"');
+
+    // Validate status and priority
+    match cleaned_status {
+        "backlog" | "todo" | "inprogress" | "review" | "done" => {},
+        _ => return Err(format!("Invalid status: {}. Valid statuses: backlog, todo, inprogress, review, done", cleaned_status)),
+    }
+
+    match cleaned_priority {
+        "low" | "medium" | "high" | "critical" => {},
+        _ => return Err(format!("Invalid priority: {}. Valid priorities: low, medium, high, critical", cleaned_priority)),
+    }
+
+    db.execute(
+        "UPDATE project_tasks SET title = ?1, description = ?2, status = ?3, priority = ?4, updated_at = ?5 WHERE id = ?6",
+        rusqlite::params![updated_title, updated_description, cleaned_status, cleaned_priority, updated_at.to_rfc3339(), id]
+    ).map_err(|e| format!("SQL update error: {}", e))?;
+
+    let updated_task = database::ProjectTask {
+        id: id.clone(),
+        workstream_id,
+        title: updated_title,
+        description: updated_description,
+        status: serde_json::from_str(&format!("\"{}\"", cleaned_status)).unwrap_or(database::TaskStatus::Backlog),
+        priority: serde_json::from_str(&format!("\"{}\"", cleaned_priority)).unwrap_or(database::Priority::Medium),
+        due_date: None,
+        completed_date: None,
+        estimated_hours: None,
+        actual_hours: None,
+        tags: Vec::new(),
+        dependencies: Vec::new(),
+        created_at: chrono::DateTime::parse_from_rfc3339(&created_at).unwrap().with_timezone(&chrono::Utc),
+        updated_at,
+    };
+
+    Ok(serde_json::to_value(updated_task).map_err(|e| format!("Serialization error: {}", e))?)
+}
+
+#[tauri::command]
+async fn delete_project_task(state: tauri::State<'_, AppState>, id: String) -> Result<String, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    // Get task title for confirmation message
+    let mut stmt = db.prepare("SELECT title FROM project_tasks WHERE id = ?1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let task_title: Result<Option<String>, rusqlite::Error> = stmt.query_row([&id], |row| {
+        Ok(row.get::<_, String>(0)?)
+    }).optional();
+
+    let task_title = task_title.map_err(|e| format!("SQL query error: {}", e))?;
+
+    if task_title.is_none() {
+        return Err(format!("Project task with ID '{}' not found", id));
+    }
+
+    db.execute("DELETE FROM project_tasks WHERE id = ?1", rusqlite::params![id])
+        .map_err(|e| format!("SQL delete error: {}", e))?;
+    
+    Ok(format!("Successfully deleted project task '{}' with ID: {}", task_title.unwrap(), id))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database connection and create schema
@@ -499,7 +757,7 @@ pub fn run() {
                 .build(),
         )
         .manage(app_state)
-        .invoke_handler(tauri::generate_handler![greet, test_database_connection, create_test_persona, get_all_personas, delete_persona, clear_all_personas, create_persona, update_persona, create_workstream, get_workstreams_by_persona, get_all_workstreams, update_workstream, delete_workstream])
+        .invoke_handler(tauri::generate_handler![greet, test_database_connection, create_test_persona, get_all_personas, delete_persona, clear_all_personas, create_persona, update_persona, create_workstream, get_workstreams_by_persona, get_all_workstreams, update_workstream, delete_workstream, create_project_task, get_tasks_by_workstream, get_all_project_tasks, update_project_task, delete_project_task])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
