@@ -705,6 +705,7 @@ async fn update_project_task(
     Ok(serde_json::to_value(updated_task).map_err(|e| format!("Serialization error: {}", e))?)
 }
 
+
 #[tauri::command]
 async fn delete_project_task(state: tauri::State<'_, AppState>, id: String) -> Result<String, String> {
     let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
@@ -723,9 +724,13 @@ async fn delete_project_task(state: tauri::State<'_, AppState>, id: String) -> R
         return Err(format!("Project task with ID '{}' not found", id));
     }
 
-    db.execute("DELETE FROM project_tasks WHERE id = ?1", rusqlite::params![id])
+    let changes = db.execute("DELETE FROM project_tasks WHERE id = ?1", rusqlite::params![id])
         .map_err(|e| format!("SQL delete error: {}", e))?;
-    
+
+    if changes == 0 {
+        return Err(format!("No task was deleted with ID '{}'", id));
+    }
+
     Ok(format!("Successfully deleted project task '{}' with ID: {}", task_title.unwrap(), id))
 }
 

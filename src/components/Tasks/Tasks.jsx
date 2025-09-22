@@ -24,6 +24,10 @@ const Tasks = () => {
   const [error, setError] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [taskToDelete, setTaskToDelete] = useState(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
 
   // Filter state
   const [selectedWorkstream, setSelectedWorkstream] = useState('all');
@@ -108,21 +112,36 @@ const Tasks = () => {
     setShowCreateForm(true);
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this task? This action cannot be undone.')) {
-      return;
-    }
+  const handleDeleteClick = (task) => {
+    setTaskToDelete(task);
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!taskToDelete) return;
+    
     setIsLoading(true);
     setError('');
+    setShowDeleteModal(false);
+    
     try {
-      const result = await invoke('delete_project_task', { id });
-      alert(result);
+      const result = await invoke('delete_project_task', { id: taskToDelete.id });
+      setSuccessMessage(`✅ Successfully deleted task: ${taskToDelete.title}`);
+      setShowSuccessModal(true);
       loadTasks();
     } catch (err) {
       setError(`Failed to delete task: ${err}`);
+      setSuccessMessage(`❌ Error: Failed to delete task: ${err}`);
+      setShowSuccessModal(true);
     } finally {
       setIsLoading(false);
+      setTaskToDelete(null);
     }
+  };
+
+  const handleDeleteCancel = () => {
+    setShowDeleteModal(false);
+    setTaskToDelete(null);
   };
 
   const handleSubmit = async (e) => {
@@ -326,14 +345,14 @@ const Tasks = () => {
                     >
                       ✏️ Edit
                     </button>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={() => handleDelete(task.id)}
-                      disabled={isLoading}
-                      title="Delete task"
-                    >
-                      🗑️ Delete
-                    </button>
+                           <button
+                             className="btn btn-danger btn-sm"
+                             onClick={() => handleDeleteClick(task)}
+                             disabled={isLoading}
+                             title="Delete task"
+                           >
+                             🗑️ Delete
+                           </button>
                   </div>
                 </div>
               </div>
@@ -440,9 +459,70 @@ const Tasks = () => {
             </form>
           </div>
         </div>
-      )}
-    </div>
-  );
-};
+             )}
 
-export default Tasks;
+             {/* Delete Confirmation Modal */}
+             {showDeleteModal && (
+               <div className="modal-overlay">
+                 <div className="modal-content delete-modal">
+                   <div className="modal-header">
+                     <h3 className="modal-title">Confirm Deletion</h3>
+                     <button onClick={handleDeleteCancel} className="btn btn-icon">✖️</button>
+                   </div>
+                   <div className="modal-body">
+                     <p>Are you sure you want to delete this task?</p>
+                     <p className="task-name"><strong>{taskToDelete?.title}</strong></p>
+                     <p className="warning-text">This action cannot be undone.</p>
+                   </div>
+                   <div className="modal-actions">
+                     <button 
+                       onClick={handleDeleteCancel} 
+                       className="btn btn-secondary"
+                       disabled={isLoading}
+                     >
+                       Cancel
+                     </button>
+                     <button 
+                       onClick={handleDeleteConfirm} 
+                       className="btn btn-danger"
+                       disabled={isLoading}
+                     >
+                       {isLoading ? 'Deleting...' : 'Delete Task'}
+                     </button>
+                   </div>
+                 </div>
+               </div>
+             )}
+
+             {/* Success/Error Modal */}
+             {showSuccessModal && (
+               <div className="modal-overlay">
+                 <div className="modal-content success-modal">
+                   <div className="modal-header">
+                     <h3 className="modal-title">Operation Result</h3>
+                     <button 
+                       onClick={() => setShowSuccessModal(false)} 
+                       className="btn btn-icon"
+                     >
+                       ✖️
+                     </button>
+                   </div>
+                   <div className="modal-body">
+                     <p className="result-message">{successMessage}</p>
+                   </div>
+                   <div className="modal-actions">
+                     <button 
+                       onClick={() => setShowSuccessModal(false)} 
+                       className="btn btn-primary"
+                     >
+                       OK
+                     </button>
+                   </div>
+                 </div>
+               </div>
+             )}
+           </div>
+         );
+       };
+
+       export default Tasks;
