@@ -22,6 +22,7 @@ const KanbanBoard = ({
   workstreams, 
   selectedWorkstream, 
   selectedStatuses, 
+  filteredTasks,
   onTaskUpdate 
 }) => {
   const [tasks, setTasks] = useState([]);
@@ -46,30 +47,20 @@ const KanbanBoard = ({
   ];
 
   useEffect(() => {
-    loadKanbanData();
-  }, [selectedWorkstream, selectedStatuses]);
+    if (filteredTasks) {
+      setTasks(filteredTasks);
+      loadTaskCounts();
+    }
+  }, [filteredTasks, selectedWorkstream]);
 
-  const loadKanbanData = async () => {
-    setIsLoading(true);
-    setError('');
-    
+  const loadTaskCounts = async () => {
     try {
-      const [tasksResult, countsResult] = await Promise.all([
-        invoke('get_tasks_for_kanban', {
-          workstreamFilter: selectedWorkstream,
-          statusFilter: 'all'
-        }),
-        invoke('get_task_counts_by_status', {
-          workstreamFilter: selectedWorkstream
-        })
-      ]);
-      
-      setTasks(tasksResult);
+      const countsResult = await invoke('get_task_counts_by_status', {
+        workstreamFilter: selectedWorkstream
+      });
       setTaskCounts(countsResult);
     } catch (err) {
-      setError(`Failed to load Kanban data: ${err}`);
-    } finally {
-      setIsLoading(false);
+      console.error('Failed to load task counts:', err);
     }
   };
 
@@ -130,10 +121,18 @@ const KanbanBoard = ({
   };
 
   const getTasksForStatus = (status) => {
-    return tasks.filter(task => 
-      task.status.toLowerCase() === status && 
-      selectedStatuses.includes(status)
-    );
+    return tasks.filter(task => {
+      // Clean the status string (same logic as Tasks component)
+      let cleanStatus = task.status;
+      if (cleanStatus.startsWith('"') && cleanStatus.endsWith('"')) {
+        cleanStatus = cleanStatus.slice(1, -1);
+      }
+      cleanStatus = cleanStatus.replace(/\\"/g, '');
+      
+      const normalizedStatus = cleanStatus.toLowerCase().replace(/\s+/g, '');
+      
+      return normalizedStatus === status && selectedStatuses.includes(status);
+    });
   };
 
   const visibleColumns = statusColumns.filter(column => 

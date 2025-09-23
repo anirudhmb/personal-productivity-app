@@ -46,13 +46,6 @@ const Tasks = () => {
   const [sortField, setSortField] = useState('created_at');
   const [sortDirection, setSortDirection] = useState('desc');
 
-  console.log('Current filter state:', {
-    selectedWorkstream,
-    selectedStatuses,
-    selectedPersona,
-    viewMode
-  });
-
   // Form state
   const [formData, setFormData] = useState({
     workstream_id: '',
@@ -97,7 +90,6 @@ const Tasks = () => {
     setError('');
     try {
       const result = await invoke('get_all_project_tasks');
-      console.log('Loaded tasks:', result);
       setTasks(result);
     } catch (err) {
       console.error('Failed to load tasks:', err);
@@ -275,13 +267,6 @@ const Tasks = () => {
     
     const normalizedPriority = cleanPriority.toLowerCase().replace(/\s+/g, '');
     
-    console.log('Priority debug:', {
-      originalPriority: priority,
-      cleanPriority,
-      normalizedPriority,
-      foundPriority: priorityOptions.find(p => p.value === normalizedPriority)
-    });
-    
     return priorityOptions.find(p => p.value === normalizedPriority) || priorityOptions[1];
   };
 
@@ -311,19 +296,6 @@ const Tasks = () => {
     }
     
     const matches = workstreamMatch && statusMatch && personaMatch;
-    console.log(`Task ${task.title}:`, {
-      workstreamMatch,
-      statusMatch,
-      personaMatch,
-      final: matches,
-      taskStatus: task.status,
-      cleanTaskStatus,
-      normalizedTaskStatus,
-      selectedStatuses,
-      selectedWorkstream,
-      selectedPersona,
-      taskWorkstreamId: task.workstream_id
-    });
     
     return matches;
   });
@@ -365,8 +337,6 @@ const Tasks = () => {
     if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
     return 0;
   });
-
-  console.log(`Filtering results: ${tasks.length} total tasks, ${filteredTasks.length} filtered tasks, ${sortedTasks.length} sorted tasks`);
 
   return (
     <div className="tasks">
@@ -538,6 +508,7 @@ const Tasks = () => {
               workstreams={workstreams}
               selectedWorkstream={selectedWorkstream}
               selectedStatuses={selectedStatuses}
+              filteredTasks={filteredTasks}
               onTaskUpdate={handleTaskUpdate}
             />
           )}
