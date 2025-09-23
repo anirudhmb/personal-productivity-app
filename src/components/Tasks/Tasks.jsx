@@ -519,13 +519,15 @@ const Tasks = () => {
               </table>
             </div>
           ) : (
-            <KanbanBoard
-              workstreams={workstreams}
-              selectedWorkstream={selectedWorkstream}
-              selectedStatuses={selectedStatuses}
-              filteredTasks={filteredTasks}
-              onTaskUpdate={handleTaskUpdate}
-            />
+            <div className="kanban-board-container">
+              <KanbanBoard
+                workstreams={workstreams}
+                selectedWorkstream={selectedWorkstream}
+                selectedStatuses={selectedStatuses}
+                filteredTasks={filteredTasks}
+                onTaskUpdate={handleTaskUpdate}
+              />
+            </div>
           )}
         </>
       )}

@@ -135,6 +135,16 @@
   max-width: 100%;
 }
 
+.kanban-board-container {
+  background: var(--bg-primary);
+  border-radius: var(--border-radius-md);
+  border: 1px solid var(--border-color);
+  overflow-x: auto;
+  overflow-y: visible;
+  box-shadow: var(--shadow-sm);
+  max-width: 100%;
+}
+
 .task-table {
   width: 100%;
   min-width: 800px;
@@ -627,6 +637,10 @@ form {
 
   /* Table responsive design */
   .task-table-container {
+    overflow-x: auto;
+  }
+  
+  .kanban-board-container {
     overflow-x: auto;
   }
 
