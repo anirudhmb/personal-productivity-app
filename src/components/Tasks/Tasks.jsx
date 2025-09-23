@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import DeleteConfirmationModal from '../DeleteConfirmationModal/DeleteConfirmationModal';
 import SuccessModal from '../SuccessModal/SuccessModal';
+import KanbanBoard from './KanbanBoard/KanbanBoard';
+import TaskFilters from './TaskFilters/TaskFilters';
 import './Tasks.css';
 
 const statusOptions = [
@@ -22,6 +24,7 @@ const priorityOptions = [
 const Tasks = () => {
   const [tasks, setTasks] = useState([]);
   const [workstreams, setWorkstreams] = useState([]);
+  const [personas, setPersonas] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -35,6 +38,20 @@ const Tasks = () => {
   // Filter state
   const [selectedWorkstream, setSelectedWorkstream] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [selectedStatuses, setSelectedStatuses] = useState(['backlog', 'todo', 'inprogress', 'review', 'done']);
+  const [viewMode, setViewMode] = useState('list');
+  const [selectedPersona, setSelectedPersona] = useState('all');
+
+  // Sorting state
+  const [sortField, setSortField] = useState('created_at');
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  console.log('Current filter state:', {
+    selectedWorkstream,
+    selectedStatuses,
+    selectedPersona,
+    viewMode
+  });
 
   // Form state
   const [formData, setFormData] = useState({
@@ -47,9 +64,20 @@ const Tasks = () => {
 
   // Load data on component mount
   useEffect(() => {
+    loadPersonas();
     loadWorkstreams();
     loadTasks();
   }, []);
+
+  const loadPersonas = async () => {
+    try {
+      const result = await invoke('get_all_personas');
+      setPersonas(result);
+    } catch (err) {
+      console.error('Failed to load personas:', err);
+      setError(`Failed to load personas: ${err}`);
+    }
+  };
 
   const loadWorkstreams = async () => {
     try {
@@ -69,8 +97,10 @@ const Tasks = () => {
     setError('');
     try {
       const result = await invoke('get_all_project_tasks');
+      console.log('Loaded tasks:', result);
       setTasks(result);
     } catch (err) {
+      console.error('Failed to load tasks:', err);
       setError(`Failed to load tasks: ${err}`);
     } finally {
       setIsLoading(false);
@@ -149,6 +179,35 @@ const Tasks = () => {
     setTaskToDelete(null);
   };
 
+  const handleWorkstreamChange = (workstreamId) => {
+    setSelectedWorkstream(workstreamId);
+  };
+
+  const handleStatusChange = (statuses) => {
+    setSelectedStatuses(statuses);
+  };
+
+  const handleViewModeChange = (mode) => {
+    setViewMode(mode);
+  };
+
+  const handleTaskUpdate = (updatedTask) => {
+    setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
+  };
+
+  const handlePersonaChange = (personaId) => {
+    setSelectedPersona(personaId);
+  };
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.title.trim() || !formData.workstream_id) {
@@ -163,6 +222,7 @@ const Tasks = () => {
       let result;
       if (editingTask) {
         // Update existing task
+        console.log('Updating task with priority:', formData.priority);
         result = await invoke('update_project_task', {
           id: editingTask.id,
           title: formData.title.trim(),
@@ -170,9 +230,11 @@ const Tasks = () => {
           status: formData.status,
           priority: formData.priority
         });
+        console.log('Updated task result:', result);
         setTasks(prev => prev.map(t => t.id === editingTask.id ? result : t));
       } else {
         // Create new task
+        console.log('Creating task with priority:', formData.priority);
         result = await invoke('create_project_task', {
           workstreamId: formData.workstream_id,
           title: formData.title.trim(),
@@ -180,6 +242,7 @@ const Tasks = () => {
           status: formData.status,
           priority: formData.priority
         });
+        console.log('Created task result:', result);
         setTasks(prev => [result, ...prev]);
       }
       resetForm();
@@ -191,20 +254,119 @@ const Tasks = () => {
   };
 
   const getStatusInfo = (status) => {
-    const normalizedStatus = status.toLowerCase();
+    // Clean the status string (same logic as filtering)
+    let cleanStatus = status;
+    if (cleanStatus.startsWith('"') && cleanStatus.endsWith('"')) {
+      cleanStatus = cleanStatus.slice(1, -1);
+    }
+    cleanStatus = cleanStatus.replace(/\\"/g, '');
+    
+    const normalizedStatus = cleanStatus.toLowerCase().replace(/\s+/g, '');
     return statusOptions.find(s => s.value === normalizedStatus) || statusOptions[0];
   };
 
   const getPriorityInfo = (priority) => {
-    const normalizedPriority = priority.toLowerCase();
+    // Clean the priority string (same logic as status)
+    let cleanPriority = priority;
+    if (cleanPriority.startsWith('"') && cleanPriority.endsWith('"')) {
+      cleanPriority = cleanPriority.slice(1, -1);
+    }
+    cleanPriority = cleanPriority.replace(/\\"/g, '');
+    
+    const normalizedPriority = cleanPriority.toLowerCase().replace(/\s+/g, '');
+    
+    console.log('Priority debug:', {
+      originalPriority: priority,
+      cleanPriority,
+      normalizedPriority,
+      foundPriority: priorityOptions.find(p => p.value === normalizedPriority)
+    });
+    
     return priorityOptions.find(p => p.value === normalizedPriority) || priorityOptions[1];
   };
 
   const filteredTasks = tasks.filter(task => {
     const workstreamMatch = selectedWorkstream === 'all' || task.workstream_id === selectedWorkstream;
-    const statusMatch = selectedStatus === 'all' || task.status.toLowerCase() === selectedStatus;
-    return workstreamMatch && statusMatch;
+    
+    // More flexible status matching - handle JSON string formatting
+    let cleanTaskStatus = task.status;
+    // Remove JSON quotes if present
+    if (cleanTaskStatus.startsWith('"') && cleanTaskStatus.endsWith('"')) {
+      cleanTaskStatus = cleanTaskStatus.slice(1, -1);
+    }
+    // Remove escaped quotes if present
+    cleanTaskStatus = cleanTaskStatus.replace(/\\"/g, '');
+    
+    const normalizedTaskStatus = cleanTaskStatus.toLowerCase().replace(/\s+/g, '');
+    const statusMatch = selectedStatuses.some(status => {
+      const normalizedSelectedStatus = status.toLowerCase().replace(/\s+/g, '');
+      return normalizedTaskStatus === normalizedSelectedStatus;
+    });
+    
+    // Filter by persona if selected
+    let personaMatch = true;
+    if (selectedPersona !== 'all') {
+      const workstream = workstreams.find(w => w.id === task.workstream_id);
+      personaMatch = workstream && workstream.persona_id === selectedPersona;
+    }
+    
+    const matches = workstreamMatch && statusMatch && personaMatch;
+    console.log(`Task ${task.title}:`, {
+      workstreamMatch,
+      statusMatch,
+      personaMatch,
+      final: matches,
+      taskStatus: task.status,
+      cleanTaskStatus,
+      normalizedTaskStatus,
+      selectedStatuses,
+      selectedWorkstream,
+      selectedPersona,
+      taskWorkstreamId: task.workstream_id
+    });
+    
+    return matches;
   });
+
+  // Sort the filtered tasks
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    let aValue, bValue;
+    
+    switch (sortField) {
+      case 'title':
+        aValue = a.title.toLowerCase();
+        bValue = b.title.toLowerCase();
+        break;
+      case 'status':
+        aValue = a.status.toLowerCase();
+        bValue = b.status.toLowerCase();
+        break;
+      case 'priority':
+        aValue = a.priority.toLowerCase();
+        bValue = b.priority.toLowerCase();
+        break;
+      case 'workstream':
+        const aWorkstream = workstreams.find(w => w.id === a.workstream_id);
+        const bWorkstream = workstreams.find(w => w.id === b.workstream_id);
+        aValue = aWorkstream ? aWorkstream.name.toLowerCase() : '';
+        bValue = bWorkstream ? bWorkstream.name.toLowerCase() : '';
+        break;
+      case 'created_at':
+      case 'updated_at':
+        aValue = new Date(a[sortField]);
+        bValue = new Date(b[sortField]);
+        break;
+      default:
+        aValue = a[sortField] || '';
+        bValue = b[sortField] || '';
+    }
+    
+    if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+    if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  console.log(`Filtering results: ${tasks.length} total tasks, ${filteredTasks.length} filtered tasks, ${sortedTasks.length} sorted tasks`);
 
   return (
     <div className="tasks">
@@ -231,42 +393,18 @@ const Tasks = () => {
         </div>
       )}
 
-      {tasks.length > 0 && (
-        <div className="tasks-filters">
-          <div className="filter-group">
-            <label htmlFor="workstream-filter" className="filter-label">Filter by Workstream:</label>
-            <select
-              id="workstream-filter"
-              className="filter-select"
-              value={selectedWorkstream}
-              onChange={(e) => setSelectedWorkstream(e.target.value)}
-            >
-              <option value="all">All Workstreams</option>
-              {workstreams.map((workstream) => (
-                <option key={workstream.id} value={workstream.id}>
-                  {workstream.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="filter-group">
-            <label htmlFor="status-filter" className="filter-label">Filter by Status:</label>
-            <select
-              id="status-filter"
-              className="filter-select"
-              value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-            >
-              <option value="all">All Statuses</option>
-              {statusOptions.map((status) => (
-                <option key={status.value} value={status.value}>
-                  {status.icon} {status.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      )}
+        <TaskFilters
+          workstreams={workstreams}
+          selectedWorkstream={selectedWorkstream}
+          onWorkstreamChange={handleWorkstreamChange}
+          selectedStatuses={selectedStatuses}
+          onStatusChange={handleStatusChange}
+          viewMode={viewMode}
+          onViewModeChange={handleViewModeChange}
+          personas={personas}
+          selectedPersona={selectedPersona}
+          onPersonaChange={handlePersonaChange}
+        />
 
       {filteredTasks.length === 0 && !isLoading ? (
         <div className="empty-state">
@@ -291,79 +429,119 @@ const Tasks = () => {
           </button>
         </div>
       ) : (
-        <div className="task-grid">
-          {filteredTasks.map((task) => {
-            const workstream = workstreams.find(w => w.id === task.workstream_id);
-            const statusInfo = getStatusInfo(task.status);
-            const priorityInfo = getPriorityInfo(task.priority);
-            return (
-              <div key={task.id} className="task-card card">
-                <div className="task-card-header">
-                  <div className="task-workstream">
-                    {workstream && (
-                      <>
-                        <div 
-                          className="workstream-color-dot" 
-                          style={{ backgroundColor: workstream.persona_color }}
-                        />
-                        <span className="workstream-name">{workstream.name}</span>
-                      </>
-                    )}
-                  </div>
-                  <div className="task-status">
-                    <span 
-                      className="status-badge"
-                      style={{ backgroundColor: statusInfo.color }}
+        <>
+          {viewMode === 'list' ? (
+            <div className="task-table-container">
+              <table className="task-table">
+                <thead>
+                  <tr>
+                    <th 
+                      className={`sortable ${sortField === 'title' ? `sorted-${sortDirection}` : ''}`}
+                      onClick={() => handleSort('title')}
                     >
-                      {statusInfo.icon} {statusInfo.label}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="task-info">
-                  <h3 className="task-title">{task.title}</h3>
-                  {task.description && (
-                    <p className="task-description">{task.description}</p>
-                  )}
-                  <div className="task-priority">
-                    <span 
-                      className="priority-badge"
-                      style={{ backgroundColor: priorityInfo.color }}
+                      Title {sortField === 'title' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th 
+                      className={`sortable ${sortField === 'workstream' ? `sorted-${sortDirection}` : ''}`}
+                      onClick={() => handleSort('workstream')}
                     >
-                      {priorityInfo.icon} {priorityInfo.label}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="task-card-footer">
-                  <div className="task-meta">
-                    <span className="meta-item">
-                      Created: {new Date(task.created_at).toLocaleDateString()}
-                    </span>
-                  </div>
-                  <div className="task-actions">
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => startEdit(task)}
-                      disabled={isLoading}
-                      title="Edit task"
+                      Workstream {sortField === 'workstream' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th 
+                      className={`sortable ${sortField === 'status' ? `sorted-${sortDirection}` : ''}`}
+                      onClick={() => handleSort('status')}
                     >
-                      ✏️ Edit
-                    </button>
-                           <button
-                             className="btn btn-danger btn-sm"
-                             onClick={() => handleDeleteClick(task)}
-                             disabled={isLoading}
-                             title="Delete task"
-                           >
-                             🗑️ Delete
-                           </button>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+                      Status {sortField === 'status' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th 
+                      className={`sortable ${sortField === 'priority' ? `sorted-${sortDirection}` : ''}`}
+                      onClick={() => handleSort('priority')}
+                    >
+                      Priority {sortField === 'priority' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th 
+                      className={`sortable ${sortField === 'created_at' ? `sorted-${sortDirection}` : ''}`}
+                      onClick={() => handleSort('created_at')}
+                    >
+                      Created {sortField === 'created_at' && (sortDirection === 'asc' ? '↑' : '↓')}
+                    </th>
+                    <th className="actions-column">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedTasks.map((task) => {
+                    const workstream = workstreams.find(w => w.id === task.workstream_id);
+                    const statusInfo = getStatusInfo(task.status);
+                    const priorityInfo = getPriorityInfo(task.priority);
+                    return (
+                      <tr key={task.id} className="task-row">
+                        <td className="task-title-cell">
+                          <div className="task-title-content">
+                            <span className="task-title">{task.title}</span>
+                            {task.description && (
+                              <span className="task-description">{task.description}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="task-workstream-cell">
+                          {workstream && (
+                            <span className="workstream-name">{workstream.name}</span>
+                          )}
+                        </td>
+                        <td className="task-status-cell">
+                          <span
+                            className="status-text"
+                            style={{ color: statusInfo.color }}
+                          >
+                            {statusInfo.label}
+                          </span>
+                        </td>
+                        <td className="task-priority-cell">
+                          <span
+                            className="priority-text"
+                            style={{ color: priorityInfo.color }}
+                          >
+                            {priorityInfo.label}
+                          </span>
+                        </td>
+                        <td className="task-date-cell">
+                          {new Date(task.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="task-actions-cell">
+                          <div className="task-actions">
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              onClick={() => startEdit(task)}
+                              disabled={isLoading}
+                              title="Edit task"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              onClick={() => handleDeleteClick(task)}
+                              disabled={isLoading}
+                              title="Delete task"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <KanbanBoard
+              workstreams={workstreams}
+              selectedWorkstream={selectedWorkstream}
+              selectedStatuses={selectedStatuses}
+              onTaskUpdate={handleTaskUpdate}
+            />
+          )}
+        </>
       )}
 
       {showCreateForm && (

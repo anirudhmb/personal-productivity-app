@@ -897,6 +897,228 @@ async fn cascade_delete_workstream(state: tauri::State<'_, AppState>, id: String
     Ok(format!("Successfully deleted workstream '{}' and all associated tasks", workstream_name.unwrap()))
 }
 
+// Kanban board specific functions
+#[tauri::command]
+async fn get_tasks_for_kanban(
+    state: tauri::State<'_, AppState>,
+    workstream_filter: Option<String>,
+    status_filter: Option<String>
+) -> Result<Vec<serde_json::Value>, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    let mut query = "
+        SELECT 
+            pt.id,
+            pt.workstream_id,
+            pt.title,
+            pt.description,
+            pt.status,
+            pt.priority,
+            pt.due_date,
+            pt.completed_date,
+            pt.estimated_hours,
+            pt.actual_hours,
+            pt.tags,
+            pt.dependencies,
+            pt.created_at,
+            pt.updated_at,
+            w.name as workstream_name,
+            w.persona_id,
+            p.name as persona_name,
+            p.color as persona_color
+        FROM project_tasks pt
+        JOIN workstreams w ON pt.workstream_id = w.id
+        JOIN personas p ON w.persona_id = p.id
+        WHERE 1=1
+    ".to_string();
+
+    let mut params: Vec<String> = Vec::new();
+
+    if let Some(workstream_id) = workstream_filter {
+        if workstream_id != "all" {
+            query.push_str(" AND pt.workstream_id = ?");
+            params.push(workstream_id);
+        }
+    }
+
+    if let Some(status) = status_filter {
+        if status != "all" {
+            query.push_str(" AND pt.status = ?");
+            params.push(status);
+        }
+    }
+
+    query.push_str(" ORDER BY pt.created_at DESC");
+
+    let mut stmt = db.prepare(&query)
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "workstream_id": row.get::<_, String>(1)?,
+            "title": row.get::<_, String>(2)?,
+            "description": row.get::<_, Option<String>>(3)?,
+            "status": row.get::<_, String>(4)?,
+            "priority": row.get::<_, String>(5)?,
+            "due_date": row.get::<_, Option<String>>(6)?,
+            "completed_date": row.get::<_, Option<String>>(7)?,
+            "estimated_hours": row.get::<_, Option<f32>>(8)?,
+            "actual_hours": row.get::<_, Option<f32>>(9)?,
+            "tags": row.get::<_, Option<String>>(10)?,
+            "dependencies": row.get::<_, Option<String>>(11)?,
+            "created_at": row.get::<_, String>(12)?,
+            "updated_at": row.get::<_, String>(13)?,
+            "workstream_name": row.get::<_, String>(14)?,
+            "persona_id": row.get::<_, String>(15)?,
+            "persona_name": row.get::<_, String>(16)?,
+            "persona_color": row.get::<_, String>(17)?
+        }))
+    })
+    .map_err(|e| format!("SQL query error: {}", e))?;
+
+    let mut tasks = Vec::new();
+    for row in rows {
+        tasks.push(row.map_err(|e| format!("Row processing error: {}", e))?);
+    }
+
+    Ok(tasks)
+}
+
+#[tauri::command]
+async fn get_task_counts_by_status(
+    state: tauri::State<'_, AppState>,
+    workstream_filter: Option<String>
+) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    let mut query = "
+        SELECT 
+            pt.status,
+            COUNT(*) as count
+        FROM project_tasks pt
+        JOIN workstreams w ON pt.workstream_id = w.id
+        WHERE 1=1
+    ".to_string();
+
+    let mut params: Vec<String> = Vec::new();
+
+    if let Some(workstream_id) = workstream_filter {
+        if workstream_id != "all" {
+            query.push_str(" AND pt.workstream_id = ?");
+            params.push(workstream_id);
+        }
+    }
+
+    query.push_str(" GROUP BY pt.status");
+
+    let mut stmt = db.prepare(&query)
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let rows = stmt.query_map(rusqlite::params_from_iter(params.iter()), |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+    })
+    .map_err(|e| format!("SQL query error: {}", e))?;
+
+    let mut counts = serde_json::json!({
+        "backlog": 0,
+        "todo": 0,
+        "inprogress": 0,
+        "review": 0,
+        "done": 0
+    });
+
+    for row in rows {
+        let (status, count): (String, i64) = row.map_err(|e| format!("Row processing error: {}", e))?;
+        let status_key = status.to_lowercase();
+        if counts.get(&status_key).is_some() {
+            counts[&status_key] = serde_json::Value::Number(serde_json::Number::from(count));
+        }
+    }
+
+    Ok(counts)
+}
+
+#[tauri::command]
+async fn update_task_status(
+    state: tauri::State<'_, AppState>,
+    task_id: String,
+    new_status: String
+) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    // Validate status
+    let valid_statuses = ["backlog", "todo", "inprogress", "review", "done"];
+    if !valid_statuses.contains(&new_status.to_lowercase().as_str()) {
+        return Err(format!("Invalid status: {}. Valid statuses are: {:?}", new_status, valid_statuses));
+    }
+
+    // Update the task status
+    let changes = db.execute(
+        "UPDATE project_tasks SET status = ?, updated_at = ? WHERE id = ?",
+        rusqlite::params![new_status.to_lowercase(), get_current_timestamp().to_string(), task_id]
+    )
+    .map_err(|e| format!("SQL update error: {}", e))?;
+
+    if changes == 0 {
+        return Err(format!("Task with ID '{}' not found", task_id));
+    }
+
+    // Return updated task data
+    let mut stmt = db.prepare("
+        SELECT 
+            pt.id,
+            pt.workstream_id,
+            pt.title,
+            pt.description,
+            pt.status,
+            pt.priority,
+            pt.due_date,
+            pt.completed_date,
+            pt.estimated_hours,
+            pt.actual_hours,
+            pt.tags,
+            pt.dependencies,
+            pt.created_at,
+            pt.updated_at,
+            w.name as workstream_name,
+            w.persona_id,
+            p.name as persona_name,
+            p.color as persona_color
+        FROM project_tasks pt
+        JOIN workstreams w ON pt.workstream_id = w.id
+        JOIN personas p ON w.persona_id = p.id
+        WHERE pt.id = ?
+    ")
+    .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let task = stmt.query_row([&task_id], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "workstream_id": row.get::<_, String>(1)?,
+            "title": row.get::<_, String>(2)?,
+            "description": row.get::<_, Option<String>>(3)?,
+            "status": row.get::<_, String>(4)?,
+            "priority": row.get::<_, String>(5)?,
+            "due_date": row.get::<_, Option<String>>(6)?,
+            "completed_date": row.get::<_, Option<String>>(7)?,
+            "estimated_hours": row.get::<_, Option<f32>>(8)?,
+            "actual_hours": row.get::<_, Option<f32>>(9)?,
+            "tags": row.get::<_, Option<String>>(10)?,
+            "dependencies": row.get::<_, Option<String>>(11)?,
+            "created_at": row.get::<_, String>(12)?,
+            "updated_at": row.get::<_, String>(13)?,
+            "workstream_name": row.get::<_, String>(14)?,
+            "persona_id": row.get::<_, String>(15)?,
+            "persona_name": row.get::<_, String>(16)?,
+            "persona_color": row.get::<_, String>(17)?
+        }))
+    })
+    .map_err(|e| format!("SQL query error: {}", e))?;
+
+    Ok(task)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database connection and create schema
@@ -925,7 +1147,7 @@ pub fn run() {
                 .build(),
         )
         .manage(app_state)
-        .invoke_handler(tauri::generate_handler![greet, test_database_connection, create_test_persona, get_all_personas, delete_persona, clear_all_personas, create_persona, update_persona, create_workstream, get_workstreams_by_persona, get_all_workstreams, update_workstream, delete_workstream, create_project_task, get_tasks_by_workstream, get_all_project_tasks, update_project_task, delete_project_task, check_persona_dependencies, check_workstream_dependencies, cascade_delete_persona, cascade_delete_workstream])
+        .invoke_handler(tauri::generate_handler![greet, test_database_connection, create_test_persona, get_all_personas, delete_persona, clear_all_personas, create_persona, update_persona, create_workstream, get_workstreams_by_persona, get_all_workstreams, update_workstream, delete_workstream, create_project_task, get_tasks_by_workstream, get_all_project_tasks, update_project_task, delete_project_task, check_persona_dependencies, check_workstream_dependencies, cascade_delete_persona, cascade_delete_workstream, get_tasks_for_kanban, get_task_counts_by_status, update_task_status])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
