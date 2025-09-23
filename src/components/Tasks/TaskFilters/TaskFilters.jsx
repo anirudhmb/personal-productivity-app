@@ -7,8 +7,6 @@ const TaskFilters = ({
   onWorkstreamChange,
   selectedStatuses,
   onStatusChange,
-  viewMode,
-  onViewModeChange,
   personas,
   selectedPersona,
   onPersonaChange
@@ -78,33 +76,12 @@ const TaskFilters = ({
             >
               🎯 Workstream Selection
             </button>
-            {viewMode === 'board' && (
-              <button
-                className={`selection-btn ${showColumnSettings ? 'active' : ''}`}
-                onClick={() => handleSelectionToggle('column')}
-                title="Column selection"
-              >
-                ⚙️ Column Selection
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="filters-right">
-          <div className="view-toggle">
             <button
-              className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
-              onClick={() => onViewModeChange('list')}
-              title="List view"
+              className={`selection-btn ${showColumnSettings ? 'active' : ''}`}
+              onClick={() => handleSelectionToggle('column')}
+              title="Column selection"
             >
-              📋 List
-            </button>
-            <button
-              className={`view-toggle-btn ${viewMode === 'board' ? 'active' : ''}`}
-              onClick={() => onViewModeChange('board')}
-              title="Board view"
-            >
-              📊 Board
+              ⚙️ Column Selection
             </button>
           </div>
         </div>
@@ -189,7 +166,7 @@ const TaskFilters = ({
               </div>
             )}
 
-            {showColumnSettings && viewMode === 'board' && (
+            {showColumnSettings && (
               <div className="selection-panel">
                 <div className="selection-header">
                   <h4 className="selection-title">Column Selection</h4>

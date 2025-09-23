@@ -179,10 +179,6 @@ const Tasks = () => {
     setSelectedStatuses(statuses);
   };
 
-  const handleViewModeChange = (mode) => {
-    setViewMode(mode);
-  };
-
   const handleTaskUpdate = (updatedTask) => {
     setTasks(prev => prev.map(t => t.id === updatedTask.id ? updatedTask : t));
   };
@@ -345,13 +341,24 @@ const Tasks = () => {
           <h1 className="tasks-title">Project Tasks</h1>
           <p className="tasks-subtitle">Manage individual tasks within your workstreams.</p>
         </div>
-        <button
-          className="btn btn-primary"
-          onClick={() => { setEditingTask(null); setShowCreateForm(true); }}
-          disabled={workstreams.length === 0}
-        >
-          + Add New Task
-        </button>
+        <div className="tasks-header-actions">
+          <div className="view-toggle">
+            <button
+              className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
+              onClick={() => setViewMode('list')}
+              title="List view"
+            >
+              📋 List
+            </button>
+            <button
+              className={`view-toggle-btn ${viewMode === 'board' ? 'active' : ''}`}
+              onClick={() => setViewMode('board')}
+              title="Board view"
+            >
+              📊 Board
+            </button>
+          </div>
+        </div>
       </div>
 
       {error && <div className="alert alert-danger">{error}</div>}
@@ -369,12 +376,20 @@ const Tasks = () => {
           onWorkstreamChange={handleWorkstreamChange}
           selectedStatuses={selectedStatuses}
           onStatusChange={handleStatusChange}
-          viewMode={viewMode}
-          onViewModeChange={handleViewModeChange}
           personas={personas}
           selectedPersona={selectedPersona}
           onPersonaChange={handlePersonaChange}
         />
+
+        <div className="tasks-actions">
+          <button
+            className="btn btn-primary"
+            onClick={() => { setEditingTask(null); setShowCreateForm(true); }}
+            disabled={workstreams.length === 0}
+          >
+            + Add New Task
+          </button>
+        </div>
 
       {filteredTasks.length === 0 && !isLoading ? (
         <div className="empty-state">
