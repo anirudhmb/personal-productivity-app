@@ -16,6 +16,7 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import KanbanColumn from './KanbanColumn';
+import KanbanCard from './KanbanCard';
 import './KanbanBoard.css';
 
 const KanbanBoard = ({ 
@@ -179,23 +180,7 @@ const KanbanBoard = ({
         
         <DragOverlay>
           {activeTask ? (
-            <div className="kanban-card-dragging">
-              <div className="kanban-card-header">
-                <div className="kanban-card-workstream">
-                  <div
-                    className="workstream-color-dot"
-                    style={{ backgroundColor: activeTask.persona_color }}
-                  />
-                  <span className="workstream-name">{activeTask.workstream_name}</span>
-                </div>
-              </div>
-              <div className="kanban-card-content">
-                <h4 className="kanban-card-title">{activeTask.title}</h4>
-                {activeTask.description && (
-                  <p className="kanban-card-description">{activeTask.description}</p>
-                )}
-              </div>
-            </div>
+            <KanbanCard task={activeTask} workstreams={workstreams} />
           ) : null}
         </DragOverlay>
       </DndContext>
