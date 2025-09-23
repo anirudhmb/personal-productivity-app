@@ -475,6 +475,7 @@ const Tasks = () => {
                itemType="task"
                itemName={taskToDelete?.title}
                itemDescription={taskToDelete?.description}
+               itemId={taskToDelete?.id}
                confirmButtonText="Delete Task"
              />
 

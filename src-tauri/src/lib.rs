@@ -734,6 +734,169 @@ async fn delete_project_task(state: tauri::State<'_, AppState>, id: String) -> R
     Ok(format!("Successfully deleted project task '{}' with ID: {}", task_title.unwrap(), id))
 }
 
+// Dependency checking functions
+#[tauri::command]
+async fn check_persona_dependencies(state: tauri::State<'_, AppState>, id: String) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    // Check if persona exists
+    let mut stmt = db.prepare("SELECT name FROM personas WHERE id = ?1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let persona_name: Result<Option<String>, rusqlite::Error> = stmt.query_row([&id], |row| {
+        Ok(row.get::<_, String>(0)?)
+    }).optional();
+
+    let persona_name = persona_name.map_err(|e| format!("SQL query error: {}", e))?;
+
+    if persona_name.is_none() {
+        return Err(format!("Persona with ID '{}' not found", id));
+    }
+
+    // Count workstreams
+    let mut stmt = db.prepare("SELECT COUNT(*) FROM workstreams WHERE persona_id = ?1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let workstream_count: i64 = stmt.query_row([&id], |row| {
+        Ok(row.get::<_, i64>(0)?)
+    }).map_err(|e| format!("SQL query error: {}", e))?;
+
+    // Count tasks through workstreams
+    let mut stmt = db.prepare("
+        SELECT COUNT(*) FROM project_tasks pt 
+        JOIN workstreams w ON pt.workstream_id = w.id 
+        WHERE w.persona_id = ?1
+    ")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let task_count: i64 = stmt.query_row([&id], |row| {
+        Ok(row.get::<_, i64>(0)?)
+    }).map_err(|e| format!("SQL query error: {}", e))?;
+
+    let result = serde_json::json!({
+        "persona_name": persona_name.unwrap(),
+        "workstream_count": workstream_count,
+        "task_count": task_count,
+        "has_dependencies": workstream_count > 0 || task_count > 0
+    });
+
+    Ok(result)
+}
+
+#[tauri::command]
+async fn check_workstream_dependencies(state: tauri::State<'_, AppState>, id: String) -> Result<serde_json::Value, String> {
+    let db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    // Check if workstream exists
+    let mut stmt = db.prepare("SELECT name FROM workstreams WHERE id = ?1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let workstream_name: Result<Option<String>, rusqlite::Error> = stmt.query_row([&id], |row| {
+        Ok(row.get::<_, String>(0)?)
+    }).optional();
+
+    let workstream_name = workstream_name.map_err(|e| format!("SQL query error: {}", e))?;
+
+    if workstream_name.is_none() {
+        return Err(format!("Workstream with ID '{}' not found", id));
+    }
+
+    // Count tasks
+    let mut stmt = db.prepare("SELECT COUNT(*) FROM project_tasks WHERE workstream_id = ?1")
+        .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+    let task_count: i64 = stmt.query_row([&id], |row| {
+        Ok(row.get::<_, i64>(0)?)
+    }).map_err(|e| format!("SQL query error: {}", e))?;
+
+    let result = serde_json::json!({
+        "workstream_name": workstream_name.unwrap(),
+        "task_count": task_count,
+        "has_dependencies": task_count > 0
+    });
+
+    Ok(result)
+}
+
+// Cascade delete functions
+#[tauri::command]
+async fn cascade_delete_persona(state: tauri::State<'_, AppState>, id: String) -> Result<String, String> {
+    let mut db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    // Get persona name for confirmation message
+    let persona_name: Result<Option<String>, rusqlite::Error> = {
+        let mut stmt = db.prepare("SELECT name FROM personas WHERE id = ?1")
+            .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+        stmt.query_row([&id], |row| {
+            Ok(row.get::<_, String>(0)?)
+        }).optional()
+    };
+
+    let persona_name = persona_name.map_err(|e| format!("SQL query error: {}", e))?;
+
+    if persona_name.is_none() {
+        return Err(format!("Persona with ID '{}' not found", id));
+    }
+
+    // Start transaction for cascade delete
+    let tx = db.transaction().map_err(|e| format!("Transaction start error: {}", e))?;
+
+    // Delete tasks first (deepest level)
+    tx.execute("DELETE FROM project_tasks WHERE workstream_id IN (SELECT id FROM workstreams WHERE persona_id = ?1)", [&id])
+        .map_err(|e| format!("SQL delete tasks error: {}", e))?;
+
+    // Delete workstreams
+    tx.execute("DELETE FROM workstreams WHERE persona_id = ?1", [&id])
+        .map_err(|e| format!("SQL delete workstreams error: {}", e))?;
+
+    // Delete persona
+    tx.execute("DELETE FROM personas WHERE id = ?1", [&id])
+        .map_err(|e| format!("SQL delete persona error: {}", e))?;
+
+    // Commit transaction
+    tx.commit().map_err(|e| format!("Transaction commit error: {}", e))?;
+
+    Ok(format!("Successfully deleted persona '{}' and all associated workstreams and tasks", persona_name.unwrap()))
+}
+
+#[tauri::command]
+async fn cascade_delete_workstream(state: tauri::State<'_, AppState>, id: String) -> Result<String, String> {
+    let mut db = state.db.lock().map_err(|e| format!("Database lock error: {}", e))?;
+
+    // Get workstream name for confirmation message
+    let workstream_name: Result<Option<String>, rusqlite::Error> = {
+        let mut stmt = db.prepare("SELECT name FROM workstreams WHERE id = ?1")
+            .map_err(|e| format!("SQL prepare error: {}", e))?;
+
+        stmt.query_row([&id], |row| {
+            Ok(row.get::<_, String>(0)?)
+        }).optional()
+    };
+
+    let workstream_name = workstream_name.map_err(|e| format!("SQL query error: {}", e))?;
+
+    if workstream_name.is_none() {
+        return Err(format!("Workstream with ID '{}' not found", id));
+    }
+
+    // Start transaction for cascade delete
+    let tx = db.transaction().map_err(|e| format!("Transaction start error: {}", e))?;
+
+    // Delete tasks first
+    tx.execute("DELETE FROM project_tasks WHERE workstream_id = ?1", [&id])
+        .map_err(|e| format!("SQL delete tasks error: {}", e))?;
+
+    // Delete workstream
+    tx.execute("DELETE FROM workstreams WHERE id = ?1", [&id])
+        .map_err(|e| format!("SQL delete workstream error: {}", e))?;
+
+    // Commit transaction
+    tx.commit().map_err(|e| format!("Transaction commit error: {}", e))?;
+
+    Ok(format!("Successfully deleted workstream '{}' and all associated tasks", workstream_name.unwrap()))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize database connection and create schema
@@ -762,7 +925,7 @@ pub fn run() {
                 .build(),
         )
         .manage(app_state)
-        .invoke_handler(tauri::generate_handler![greet, test_database_connection, create_test_persona, get_all_personas, delete_persona, clear_all_personas, create_persona, update_persona, create_workstream, get_workstreams_by_persona, get_all_workstreams, update_workstream, delete_workstream, create_project_task, get_tasks_by_workstream, get_all_project_tasks, update_project_task, delete_project_task])
+        .invoke_handler(tauri::generate_handler![greet, test_database_connection, create_test_persona, get_all_personas, delete_persona, clear_all_personas, create_persona, update_persona, create_workstream, get_workstreams_by_persona, get_all_workstreams, update_workstream, delete_workstream, create_project_task, get_tasks_by_workstream, get_all_project_tasks, update_project_task, delete_project_task, check_persona_dependencies, check_workstream_dependencies, cascade_delete_persona, cascade_delete_workstream])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

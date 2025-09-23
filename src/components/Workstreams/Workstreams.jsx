@@ -134,9 +134,9 @@ const Workstreams = () => {
     setShowDeleteModal(false);
 
     try {
-      await invoke('delete_workstream', { id: workstreamToDelete.id });
+      const result = await invoke('cascade_delete_workstream', { id: workstreamToDelete.id });
       setWorkstreams(prev => prev.filter(w => w.id !== workstreamToDelete.id));
-      setSuccessMessage(`Successfully deleted workstream: ${workstreamToDelete.name}`);
+      setSuccessMessage(result);
       setSuccessModalType('success');
       setShowSuccessModal(true);
     } catch (error) {
@@ -452,6 +452,7 @@ const Workstreams = () => {
           itemType="workstream"
           itemName={workstreamToDelete?.name}
           itemDescription={workstreamToDelete?.description}
+          itemId={workstreamToDelete?.id}
           confirmButtonText="Delete Workstream"
         />
 

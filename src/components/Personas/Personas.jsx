@@ -121,9 +121,9 @@ const Personas = () => {
     setShowDeleteModal(false);
 
     try {
-      await invoke('delete_persona', { id: personaToDelete.id });
+      const result = await invoke('cascade_delete_persona', { id: personaToDelete.id });
       setPersonas(prev => prev.filter(p => p.id !== personaToDelete.id));
-      setSuccessMessage(`Successfully deleted persona: ${personaToDelete.name}`);
+      setSuccessMessage(result);
       setSuccessModalType('success');
       setShowSuccessModal(true);
     } catch (error) {
@@ -380,6 +380,7 @@ const Personas = () => {
           itemType="persona"
           itemName={personaToDelete?.name}
           itemDescription={personaToDelete?.description}
+          itemId={personaToDelete?.id}
           confirmButtonText="Delete Persona"
         />
 
